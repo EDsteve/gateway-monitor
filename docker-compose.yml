@@ -1,0 +1,10 @@
+services:
+  gateway-monitor:
+    build: .
+    image: gateway-monitor:latest
+    container_name: gateway-monitor
+    restart: unless-stopped
+    ports:
+      - "3030:3030"
+    env_file:
+      - .env

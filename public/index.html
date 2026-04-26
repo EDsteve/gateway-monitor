@@ -1,0 +1,358 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#22c55e" />
+  <link rel="icon" type="image/svg+xml" href="/logo.svg" />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <title>Gateway Monitor - ELOC</title>
+  <style>
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; }
+    body {
+      font-family: 'Inter', system-ui, -apple-system, sans-serif;
+      background: #f9fafb;
+      color: #111827;
+      min-height: 100vh;
+    }
+
+    .topbar {
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      background: #ffffff;
+      border-bottom: 1px solid #e5e7eb;
+      height: 64px;
+      display: flex;
+      align-items: center;
+      padding: 0 1.5rem;
+    }
+    .brand { display: flex; align-items: center; gap: 0.75rem; }
+    .brand img { height: 36px; width: 36px; }
+    .brand .name {
+      font-size: 1.25rem; font-weight: 700; color: #111827; letter-spacing: -0.01em;
+    }
+    .brand .sub {
+      font-size: 0.75rem; color: #6b7280; font-weight: 500; margin-top: 2px;
+    }
+    .topbar-right {
+      margin-left: auto;
+      display: flex; align-items: center; gap: 0.5rem;
+      font-size: 0.8rem; color: #6b7280;
+    }
+    .live-dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: #22c55e;
+      box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.6);
+      animation: pulse 2s infinite;
+    }
+    @keyframes pulse {
+      0%   { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.5); }
+      70%  { box-shadow: 0 0 0 8px rgba(34, 197, 94, 0); }
+      100% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0); }
+    }
+
+    main {
+      padding: 1.5rem;
+      max-width: 1400px;
+      margin: 0 auto;
+    }
+    .page-title {
+      margin: 0 0 0.25rem;
+      font-size: 1.5rem; font-weight: 600; color: #111827; letter-spacing: -0.02em;
+    }
+    .page-sub { margin: 0 0 1.5rem; font-size: 0.875rem; color: #6b7280; }
+
+    .gateways {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(380px, 1fr));
+      gap: 1rem;
+    }
+
+    .card {
+      background: #ffffff;
+      border: 1px solid #e5e7eb;
+      border-radius: 12px;
+      padding: 1.25rem;
+      transition: border-color 0.15s, box-shadow 0.15s;
+    }
+    .card:hover {
+      box-shadow: 0 1px 3px rgba(0,0,0,0.04), 0 1px 2px rgba(0,0,0,0.04);
+    }
+
+    .card-head {
+      display: flex; align-items: center; gap: 0.6rem;
+      margin-bottom: 1rem; padding-bottom: 0.875rem;
+      border-bottom: 1px solid #f3f4f6;
+    }
+    .id {
+      font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+      font-size: 0.95rem; font-weight: 600; color: #111827;
+    }
+    .badge {
+      margin-left: auto;
+      display: inline-flex; align-items: center; gap: 0.35rem;
+      padding: 0.25rem 0.625rem;
+      border-radius: 9999px;
+      font-size: 0.7rem; font-weight: 600;
+      text-transform: uppercase; letter-spacing: 0.04em;
+    }
+    .badge .dot { width: 6px; height: 6px; border-radius: 50%; }
+
+    .badge.online  { background: #f0fdf4; color: #15803d; }
+    .badge.online .dot  { background: #22c55e; }
+    .badge.offline { background: #fef2f2; color: #b91c1c; }
+    .badge.offline .dot { background: #ef4444; }
+    .badge.error   { background: #fff7ed; color: #c2410c; }
+    .badge.error .dot   { background: #fb923c; }
+    .badge.unknown { background: #f3f4f6; color: #4b5563; }
+    .badge.unknown .dot { background: #9ca3af; }
+
+    dl {
+      display: grid; grid-template-columns: auto 1fr;
+      gap: 0.55rem 1.25rem;
+      margin: 0;
+      font-size: 0.875rem;
+    }
+    dt { color: #6b7280; font-weight: 500; }
+    dd {
+      margin: 0;
+      font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+      color: #111827; text-align: right;
+    }
+
+    .err {
+      margin-top: 0.875rem;
+      padding: 0.625rem 0.75rem;
+      background: #fff7ed;
+      border: 1px solid #fed7aa;
+      border-radius: 6px;
+      color: #9a3412;
+      font-size: 0.8rem;
+      font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+    }
+
+    .timeline-section {
+      margin-top: 1.25rem;
+      padding-top: 1.25rem;
+      border-top: 1px solid #f3f4f6;
+    }
+    .tl-header {
+      display: flex; justify-content: space-between; align-items: baseline;
+      margin-bottom: 0.5rem;
+    }
+    .tl-title {
+      font-size: 0.7rem; font-weight: 600; color: #6b7280;
+      text-transform: uppercase; letter-spacing: 0.06em;
+    }
+    .tl-uptime {
+      font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+      font-size: 0.8rem; color: #111827; font-weight: 600;
+    }
+    .timeline {
+      position: relative;
+      height: 22px;
+      background: #f3f4f6;
+      border-radius: 6px;
+      overflow: hidden;
+    }
+    .tl-seg {
+      position: absolute; top: 0; bottom: 0;
+      transition: opacity 0.15s;
+    }
+    .tl-seg:hover { opacity: 0.85; }
+    .tl-seg.online  { background: #22c55e; }
+    .tl-seg.offline { background: #ef4444; }
+    .tl-seg.error   { background: #fb923c; }
+    .tl-seg.unknown { background: #d1d5db; }
+    .tl-empty {
+      text-align: center; font-size: 0.75rem;
+      color: #9ca3af; line-height: 22px;
+    }
+    .tl-axis {
+      display: flex; justify-content: space-between;
+      margin-top: 6px;
+      font-size: 0.7rem; color: #9ca3af;
+      font-variant-numeric: tabular-nums;
+    }
+    .legend {
+      display: flex; gap: 1rem; margin-top: 0.75rem;
+      font-size: 0.7rem; color: #6b7280;
+    }
+    .legend-item { display: inline-flex; align-items: center; gap: 0.35rem; }
+    .legend-swatch {
+      width: 10px; height: 10px; border-radius: 2px;
+    }
+
+    @media (max-width: 640px) {
+      .topbar { padding: 0 1rem; }
+      main { padding: 1rem; }
+      .brand .sub { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <img src="/logo.svg" alt="ELOC" />
+      <div>
+        <div class="name">Gateway Monitor</div>
+        <div class="sub">Wildlife Conservation Monitoring</div>
+      </div>
+    </div>
+    <div class="topbar-right">
+      <span class="live-dot" id="liveDot"></span>
+      <span id="footer">Connecting…</span>
+    </div>
+  </header>
+
+  <main>
+    <h1 class="page-title">TTN Gateways</h1>
+    <p class="page-sub">Live connection status from The Things Network. Timeline shows the last 24 hours of observed state.</p>
+    <div class="gateways" id="gateways"></div>
+  </main>
+
+  <script>
+    const WINDOW_MS = 24 * 60 * 60 * 1000;
+    const container = document.getElementById('gateways');
+    const footer = document.getElementById('footer');
+    const liveDot = document.getElementById('liveDot');
+    let latest = { gateways: [], history: {} };
+
+    function relative(iso) {
+      if (!iso) return '—';
+      const diff = Date.now() - new Date(iso).getTime();
+      if (diff < 0) return 'just now';
+      const s = Math.floor(diff / 1000);
+      if (s < 60) return `${s}s ago`;
+      const m = Math.floor(s / 60);
+      if (m < 60) return `${m}m ago`;
+      const h = Math.floor(m / 60);
+      if (h < 24) return `${h}h ago`;
+      return `${Math.floor(h / 24)}d ago`;
+    }
+
+    function fmtDuration(ms) {
+      const m = Math.round(ms / 60000);
+      if (m < 1) return '<1m';
+      if (m < 60) return `${m}m`;
+      const h = Math.floor(m / 60);
+      const rm = m % 60;
+      return rm ? `${h}h ${rm}m` : `${h}h`;
+    }
+
+    function escapeHtml(str) {
+      return String(str).replace(/[&<>"']/g, c => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+      }[c]));
+    }
+
+    function buildSegments(transitions, now) {
+      if (!transitions || transitions.length === 0) return [];
+      const cutoff = now - WINDOW_MS;
+      const segs = [];
+      for (let i = 0; i < transitions.length; i++) {
+        const startRaw = new Date(transitions[i].since).getTime();
+        const next = transitions[i + 1];
+        const endRaw = next ? new Date(next.since).getTime() : now;
+        if (endRaw <= cutoff || startRaw >= now) continue;
+        segs.push({
+          state: transitions[i].state,
+          start: Math.max(startRaw, cutoff),
+          end: Math.min(endRaw, now),
+        });
+      }
+      return segs;
+    }
+
+    function uptimePct(segments) {
+      let online = 0, total = 0;
+      for (const s of segments) {
+        const d = s.end - s.start;
+        total += d;
+        if (s.state === 'online') online += d;
+      }
+      return total > 0 ? (online / total) * 100 : null;
+    }
+
+    function renderTimeline(transitions, now) {
+      const segs = buildSegments(transitions, now);
+      if (segs.length === 0) {
+        return '<div class="timeline"><div class="tl-empty">No history yet</div></div>';
+      }
+      const cutoff = now - WINDOW_MS;
+      const inner = segs.map(s => {
+        const left = ((s.start - cutoff) / WINDOW_MS) * 100;
+        const width = ((s.end - s.start) / WINDOW_MS) * 100;
+        const dur = fmtDuration(s.end - s.start);
+        const tip = `${s.state} · ${dur}\n${new Date(s.start).toLocaleString()} → ${new Date(s.end).toLocaleString()}`;
+        return `<div class="tl-seg ${escapeHtml(s.state)}" style="left:${left}%;width:${width}%" title="${escapeHtml(tip)}"></div>`;
+      }).join('');
+      return `<div class="timeline">${inner}</div>`;
+    }
+
+    function render(data) {
+      latest = data;
+      const now = Date.now();
+      container.innerHTML = data.gateways.map(g => {
+        const transitions = (data.history && data.history[g.id]) || [];
+        const segs = buildSegments(transitions, now);
+        const up = uptimePct(segs);
+        return `
+          <div class="card">
+            <div class="card-head">
+              <span class="id">${escapeHtml(g.id)}</span>
+              <span class="badge ${escapeHtml(g.state)}">
+                <span class="dot"></span>${escapeHtml(g.state)}
+              </span>
+            </div>
+            <dl>
+              <dt>Connected</dt><dd>${relative(g.connectedAt)}</dd>
+              <dt>Last status</dt><dd>${relative(g.lastStatusAt)}</dd>
+              <dt>Last uplink</dt><dd>${relative(g.lastUplinkAt)}</dd>
+              <dt>Last downlink</dt><dd>${relative(g.lastDownlinkAt)}</dd>
+              <dt>Uplinks</dt><dd>${g.uplinkCount}</dd>
+              <dt>Downlinks</dt><dd>${g.downlinkCount}</dd>
+              <dt>Checked</dt><dd>${relative(g.lastChecked)}</dd>
+            </dl>
+            ${g.error ? `<div class="err">${escapeHtml(g.error)}</div>` : ''}
+            <div class="timeline-section">
+              <div class="tl-header">
+                <span class="tl-title">Last 24 hours</span>
+                ${up !== null ? `<span class="tl-uptime">${up.toFixed(1)}% online</span>` : ''}
+              </div>
+              ${renderTimeline(transitions, now)}
+              <div class="tl-axis">
+                <span>−24h</span><span>−18h</span><span>−12h</span><span>−6h</span><span>now</span>
+              </div>
+            </div>
+          </div>
+        `;
+      }).join('') + `
+        <div class="legend" style="grid-column: 1 / -1;">
+          <span class="legend-item"><span class="legend-swatch" style="background:#22c55e"></span>online</span>
+          <span class="legend-item"><span class="legend-swatch" style="background:#ef4444"></span>offline</span>
+          <span class="legend-item"><span class="legend-swatch" style="background:#fb923c"></span>error</span>
+          <span class="legend-item"><span class="legend-swatch" style="background:#d1d5db"></span>unknown / no data</span>
+        </div>
+      `;
+      footer.textContent = `Updated ${new Date().toLocaleTimeString()}`;
+      liveDot.style.background = '#22c55e';
+    }
+
+    const es = new EventSource('/api/stream');
+    es.onmessage = (e) => {
+      try { render(JSON.parse(e.data)); } catch {}
+    };
+    es.onerror = () => {
+      footer.textContent = 'Disconnected — retrying…';
+      liveDot.style.background = '#ef4444';
+    };
+
+    setInterval(() => render(latest), 5000);
+  </script>
+</body>
+</html>

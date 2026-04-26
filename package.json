@@ -1,0 +1,19 @@
+{
+  "name": "gateway-monitor",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Throwaway TTN gateway online-status dashboard",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js",
+    "deploy": "gcloud run deploy gateway-monitor --source . --region us-central1 --allow-unauthenticated --timeout 3600"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "express": "^4.21.1"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
