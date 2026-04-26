@@ -6,5 +6,9 @@ services:
     restart: unless-stopped
     ports:
       - "3030:3030"
-    env_file:
-      - .env
+    environment:
+      TTN_API_KEY: ${TTN_API_KEY}
+      TTN_REGION: ${TTN_REGION:-au1}
+      GATEWAY_IDS: ${GATEWAY_IDS}
+      POLL_INTERVAL_MS: ${POLL_INTERVAL_MS:-30000}
+      PORT: ${PORT:-3030}
