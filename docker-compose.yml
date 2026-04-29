@@ -1,7 +1,10 @@
 services:
   gateway-monitor:
+    # No `image:` line on purpose — this stack is built locally from the
+    # Dockerfile, never pulled from a registry. Adding an `image:` here
+    # makes Portainer's "Pull and redeploy" fail because the tag doesn't
+    # exist in any registry.
     build: .
-    image: gateway-monitor:latest
     container_name: gateway-monitor
     restart: unless-stopped
     ports:
@@ -10,5 +13,7 @@ services:
       TTN_API_KEY: ${TTN_API_KEY}
       TTN_REGION: ${TTN_REGION:-au1}
       GATEWAY_IDS: ${GATEWAY_IDS}
-      POLL_INTERVAL_MS: ${POLL_INTERVAL_MS:-30000}
+      POLL_INTERVAL_MS: ${POLL_INTERVAL_MS:-15000}
+      FIREBASE_PROJECT_ID: ${FIREBASE_PROJECT_ID:-eloc-b1e63}
+      FIREBASE_SERVICE_ACCOUNT_JSON: ${FIREBASE_SERVICE_ACCOUNT_JSON}
       PORT: ${PORT:-3030}

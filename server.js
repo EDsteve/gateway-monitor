@@ -33,30 +33,46 @@ if (gatewayIds.length === 0) {
 //      Easiest for Portainer / Cloud Run / any platform with a secrets UI.
 //   2. GOOGLE_APPLICATION_CREDENTIALS — path to a JSON file (Google convention).
 //   3. ./service-account.json         — file next to server.js (bind-mount).
+//
+// Returns null if no credentials are configured. We DO NOT exit on missing
+// or malformed credentials — the local SSE dashboard at PORT must keep
+// serving so its URL stays alive while the operator fixes the secret.
 function loadCredential() {
   if (process.env.FIREBASE_SERVICE_ACCOUNT_JSON) {
     try {
       return admin.credential.cert(JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_JSON));
     } catch (err) {
-      console.error('FIREBASE_SERVICE_ACCOUNT_JSON is set but does not parse as JSON:', err.message);
-      process.exit(1);
+      console.warn('Firebase: FIREBASE_SERVICE_ACCOUNT_JSON is set but does not parse as JSON:', err.message);
+      return null;
     }
   }
   if (GOOGLE_APPLICATION_CREDENTIALS) {
-    return admin.credential.applicationDefault();
+    try { return admin.credential.applicationDefault(); }
+    catch (err) { console.warn('Firebase: GOOGLE_APPLICATION_CREDENTIALS load failed:', err.message); return null; }
   }
   try {
     const json = JSON.parse(readFileSync('./service-account.json', 'utf8'));
     return admin.credential.cert(json);
-  } catch (err) {
-    console.error('No Firebase credentials found. Set FIREBASE_SERVICE_ACCOUNT_JSON, GOOGLE_APPLICATION_CREDENTIALS, or place service-account.json next to server.js.');
-    console.error(err.message);
-    process.exit(1);
+  } catch {
+    console.warn('Firebase: no credentials configured (FIREBASE_SERVICE_ACCOUNT_JSON / GOOGLE_APPLICATION_CREDENTIALS / ./service-account.json). Local dashboard will work; Firestore publishing disabled.');
+    return null;
   }
 }
 
-admin.initializeApp({ credential: loadCredential(), projectId: FIREBASE_PROJECT_ID });
-const db = admin.firestore();
+let db = null;
+try {
+  const credential = loadCredential();
+  if (credential) {
+    admin.initializeApp({ credential, projectId: FIREBASE_PROJECT_ID });
+    db = admin.firestore();
+    console.log(`Firebase: publishing to project ${FIREBASE_PROJECT_ID}, collection gateway_status_cache`);
+  } else {
+    console.warn('Firebase: disabled — running in local-dashboard-only mode');
+  }
+} catch (err) {
+  console.warn('Firebase: initializeApp failed, continuing without Firestore:', err.message);
+  db = null;
+}
 
 const baseUrl = `https://${TTN_REGION}.cloud.thethings.network/api/v3`;
 const HISTORY_WINDOW_MS = 24 * 60 * 60 * 1000;
@@ -144,6 +160,7 @@ function toFirestoreTimestamp(iso) {
 }
 
 async function writeGatewayStatus(gateway, gatewayMeta) {
+  if (!db) return; // Firestore disabled — local dashboard still serves.
   const doc = {
     gatewayId: gateway.id,
     name: gatewayMeta.name,
