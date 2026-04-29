@@ -159,6 +159,16 @@ function toFirestoreTimestamp(iso) {
   return admin.firestore.Timestamp.fromDate(d);
 }
 
+function historyForFirestore(id) {
+  const arr = history.get(id) || [];
+  return arr
+    .map(t => {
+      const ts = toFirestoreTimestamp(t.since);
+      return ts ? { state: t.state, since: ts } : null;
+    })
+    .filter(Boolean);
+}
+
 async function writeGatewayStatus(gateway, gatewayMeta) {
   if (!db) return; // Firestore disabled — local dashboard still serves.
   const doc = {
@@ -175,6 +185,7 @@ async function writeGatewayStatus(gateway, gatewayMeta) {
     uplinkCount: gateway.uplinkCount,
     downlinkCount: gateway.downlinkCount,
     error: gateway.error,
+    history24h: historyForFirestore(gateway.id),
   };
   await db.collection('gateway_status_cache').doc(gateway.id).set(doc, { merge: true });
   lastWrittenAt.set(gateway.id, Date.now());

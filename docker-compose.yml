@@ -1,10 +1,12 @@
 services:
   gateway-monitor:
-    # No `image:` line on purpose — this stack is built locally from the
-    # Dockerfile, never pulled from a registry. Adding an `image:` here
-    # makes Portainer's "Pull and redeploy" fail because the tag doesn't
-    # exist in any registry.
     build: .
+    image: gateway-monitor:latest
+    # `pull_policy: never` stops `docker compose pull` from trying to fetch
+    # this image from a registry — it only exists locally, built from the
+    # Dockerfile above. Without this, Portainer's "Pull and redeploy" fails
+    # with "pull access denied for gateway-monitor".
+    pull_policy: never
     container_name: gateway-monitor
     restart: unless-stopped
     ports:
