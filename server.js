@@ -1,12 +1,20 @@
 import express from 'express';
 import 'dotenv/config';
+import admin from 'firebase-admin';
+import { readFileSync } from 'node:fs';
 
 const {
   TTN_API_KEY,
   TTN_REGION = 'au1',
   GATEWAY_IDS = '',
   PORT = 3030,
-  POLL_INTERVAL_MS = 30000,
+  POLL_INTERVAL_MS = 15000,
+  // Re-fetch name + location every N polls. Default ~10 min at 15s polling.
+  METADATA_REFRESH_MS = 10 * 60 * 1000,
+  // Heartbeat write so the UI's "last checked" stays fresh even when nothing changed.
+  HEARTBEAT_WRITE_MS = 10 * 60 * 1000,
+  GOOGLE_APPLICATION_CREDENTIALS,
+  FIREBASE_PROJECT_ID = 'eloc-b1e63',
 } = process.env;
 
 if (!TTN_API_KEY || TTN_API_KEY.includes('replace-me')) {
@@ -20,11 +28,44 @@ if (gatewayIds.length === 0) {
   process.exit(1);
 }
 
+// Firebase Admin credentials — three sources, tried in this order:
+//   1. FIREBASE_SERVICE_ACCOUNT_JSON  — full JSON pasted as an env var.
+//      Easiest for Portainer / Cloud Run / any platform with a secrets UI.
+//   2. GOOGLE_APPLICATION_CREDENTIALS — path to a JSON file (Google convention).
+//   3. ./service-account.json         — file next to server.js (bind-mount).
+function loadCredential() {
+  if (process.env.FIREBASE_SERVICE_ACCOUNT_JSON) {
+    try {
+      return admin.credential.cert(JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_JSON));
+    } catch (err) {
+      console.error('FIREBASE_SERVICE_ACCOUNT_JSON is set but does not parse as JSON:', err.message);
+      process.exit(1);
+    }
+  }
+  if (GOOGLE_APPLICATION_CREDENTIALS) {
+    return admin.credential.applicationDefault();
+  }
+  try {
+    const json = JSON.parse(readFileSync('./service-account.json', 'utf8'));
+    return admin.credential.cert(json);
+  } catch (err) {
+    console.error('No Firebase credentials found. Set FIREBASE_SERVICE_ACCOUNT_JSON, GOOGLE_APPLICATION_CREDENTIALS, or place service-account.json next to server.js.');
+    console.error(err.message);
+    process.exit(1);
+  }
+}
+
+admin.initializeApp({ credential: loadCredential(), projectId: FIREBASE_PROJECT_ID });
+const db = admin.firestore();
+
 const baseUrl = `https://${TTN_REGION}.cloud.thethings.network/api/v3`;
 const HISTORY_WINDOW_MS = 24 * 60 * 60 * 1000;
 
 const status = new Map();
 const history = new Map();
+const meta = new Map();           // gatewayId -> { name, location, fetchedAt }
+const lastWrittenAt = new Map();  // gatewayId -> ms timestamp of last Firestore write
+
 for (const id of gatewayIds) {
   status.set(id, {
     id,
@@ -68,6 +109,58 @@ function snapshot() {
 function broadcast() {
   const payload = `data: ${JSON.stringify(snapshot())}\n\n`;
   for (const res of sseClients) res.write(payload);
+}
+
+async function fetchGatewayMetadata(id) {
+  const cached = meta.get(id);
+  if (cached && Date.now() - cached.fetchedAt < Number(METADATA_REFRESH_MS)) return cached;
+  const url = `${baseUrl}/gateways/${encodeURIComponent(id)}?field_mask=name,antennas`;
+  try {
+    const resp = await fetch(url, { headers: { Authorization: `Bearer ${TTN_API_KEY}` } });
+    if (!resp.ok) {
+      // Keep the previous metadata (if any) on transient failure.
+      console.warn(`metadata fetch ${id}: HTTP ${resp.status}`);
+      return cached ?? { name: id, location: null, fetchedAt: 0 };
+    }
+    const data = await resp.json();
+    const antennaLoc = data?.antennas?.[0]?.location;
+    const location = antennaLoc && typeof antennaLoc.latitude === 'number' && typeof antennaLoc.longitude === 'number'
+      ? { lat: antennaLoc.latitude, lng: antennaLoc.longitude, ...(typeof antennaLoc.altitude === 'number' ? { altitude: antennaLoc.altitude } : {}) }
+      : null;
+    const next = { name: data?.name || id, location, fetchedAt: Date.now() };
+    meta.set(id, next);
+    return next;
+  } catch (err) {
+    console.warn(`metadata fetch ${id} failed:`, err.message);
+    return cached ?? { name: id, location: null, fetchedAt: 0 };
+  }
+}
+
+function toFirestoreTimestamp(iso) {
+  if (!iso) return null;
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return null;
+  return admin.firestore.Timestamp.fromDate(d);
+}
+
+async function writeGatewayStatus(gateway, gatewayMeta) {
+  const doc = {
+    gatewayId: gateway.id,
+    name: gatewayMeta.name,
+    state: gateway.state,
+    location: gatewayMeta.location,
+    lastChecked: admin.firestore.FieldValue.serverTimestamp(),
+    connectedAt: toFirestoreTimestamp(gateway.connectedAt),
+    disconnectedAt: toFirestoreTimestamp(gateway.disconnectedAt),
+    lastStatusAt: toFirestoreTimestamp(gateway.lastStatusAt),
+    lastUplinkAt: toFirestoreTimestamp(gateway.lastUplinkAt),
+    lastDownlinkAt: toFirestoreTimestamp(gateway.lastDownlinkAt),
+    uplinkCount: gateway.uplinkCount,
+    downlinkCount: gateway.downlinkCount,
+    error: gateway.error,
+  };
+  await db.collection('gateway_status_cache').doc(gateway.id).set(doc, { merge: true });
+  lastWrittenAt.set(gateway.id, Date.now());
 }
 
 async function pollGateway(id) {
@@ -118,6 +211,21 @@ async function pollGateway(id) {
 
   status.set(id, next);
   recordTransition(id, next.state, now);
+
+  // Decide whether to write to Firestore. Always on state change; otherwise
+  // only on the heartbeat interval to keep write volume low.
+  const stateChanged = prev.state !== next.state;
+  const lastWrite = lastWrittenAt.get(id) ?? 0;
+  const heartbeatDue = Date.now() - lastWrite >= Number(HEARTBEAT_WRITE_MS);
+
+  if (stateChanged || heartbeatDue) {
+    try {
+      const gatewayMeta = await fetchGatewayMetadata(id);
+      await writeGatewayStatus(next, gatewayMeta);
+    } catch (err) {
+      console.error(`Firestore write ${id} failed:`, err.message);
+    }
+  }
 }
 
 async function pollAll() {
@@ -149,6 +257,8 @@ app.listen(PORT, () => {
   console.log(`Gateway monitor: http://localhost:${PORT}`);
   console.log(`Region: ${TTN_REGION}`);
   console.log(`Tracking: ${gatewayIds.join(', ')}`);
+  console.log(`Firestore project: ${FIREBASE_PROJECT_ID} (collection: gateway_status_cache)`);
+  console.log(`Polling: ${POLL_INTERVAL_MS}ms · heartbeat write: ${HEARTBEAT_WRITE_MS}ms`);
   pollAll();
   setInterval(pollAll, Number(POLL_INTERVAL_MS));
 });
